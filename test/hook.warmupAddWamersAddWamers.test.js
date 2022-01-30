@@ -5,7 +5,7 @@ jest.mock('fs', () => ({
     mkdir: jest.fn(),
     unlink: jest.fn(),
     writeFile: jest.fn(),
-    rmdir: jest.fn(),
+    rm: jest.fn(),
   },
 }));
 jest.mock('child_process', () => ({
@@ -1480,6 +1480,31 @@ describe('Serverless warmup plugin warmup:warmers:addWarmers:addWarmers hook', (
     expect(exec).not.toHaveBeenCalled();
   });
 
+  it('Should use the logRetentionInDays from options if present', async () => {
+    const serverless = getServerlessConfig({
+      service: {
+        custom: {
+          warmup: {
+            default: {
+              enabled: true,
+              logRetentionInDays: 10,
+            },
+          },
+        },
+        functions: { someFunc1: { name: 'someFunc1' }, someFunc2: { name: 'someFunc2' } },
+      },
+    });
+    const plugin = new WarmUp(serverless, {});
+
+    await plugin.hooks['before:warmup:addWarmers:addWarmers']();
+    await plugin.hooks['warmup:addWarmers:addWarmers']();
+
+    expect(plugin.serverless.service.functions.warmUpPluginDefault)
+      .toEqual(getExpectedFunctionConfig({
+        logRetentionInDays: 10,
+      }));
+  });
+
   it('Should use the function alias from options if present', async () => {
     const serverless = getServerlessConfig({
       service: {
@@ -2198,6 +2223,37 @@ describe('Serverless warmup plugin warmup:warmers:addWarmers:addWarmers hook', (
         .toHaveBeenNthCalledWith(2, getExpectedLambdaCallOptions('someFunc2', {
           Qualifier: 'TEST_ALIAS',
         }));
+    });
+
+    it('Should not log twice due to the webpack/bundle plugin workaround', async () => {
+      const serverless = getServerlessConfig({
+        config: {
+          cli: {
+            log: jest.fn(),
+          },
+        },
+        service: {
+          custom: {
+            warmup: {
+              default: {
+                enabled: true,
+              },
+            },
+          },
+          functions: { someFunc1: { name: 'someFunc1' } },
+        },
+      });
+      const plugin = new WarmUp(serverless, {});
+
+      await plugin.hooks['before:warmup:addWarmers:addWarmers']();
+      await plugin.hooks['warmup:addWarmers:addWarmers']();
+      await plugin.hooks['before:package:createDeploymentArtifacts']();
+
+      expect(plugin.serverless.service.functions.warmUpPluginDefault)
+        .toEqual(getExpectedFunctionConfig());
+
+      expect(serverless.cli.log).toHaveBeenCalledTimes(2);
+      expect(serverless.cli.log).toHaveBeenCalledWith(expect.stringMatching(/^WarmUp: Creating warmer "default" to warm up 1 function:.*/));
     });
   });
 });

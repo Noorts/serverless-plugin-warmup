@@ -116,7 +116,7 @@ class WarmUp {
 
     await Promise.all(foldersToClean.map(async (folderToClean) => {
       try {
-        await fs.rmdir(
+        await fs.rm(
           path.join(this.serviceDir, folderToClean),
           { recursive: true },
         );
@@ -133,7 +133,7 @@ class WarmUp {
         foldersToClean.some((folder) => folder.startsWith('.warmup'))
         && (await fs.readdir(defaultDir)).length === 0
       ) {
-        await fs.rmdir(defaultDir, { recursive: true });
+        await fs.rm(defaultDir, { recursive: true });
       }
     } catch (err) {
       if (err.code !== 'ENOENT') {
@@ -174,6 +174,12 @@ class WarmUp {
   async configureWarmer(warmerName, warmerConfig) {
     if (warmerConfig.functions.length === 0) {
       this.serverless.cli.log(`WarmUp: Skipping warmer "${warmerName}" creation. No functions to warm up.`);
+      return;
+    }
+
+    // Avoid double processing due to the workaround for webpack/bundle plugins
+    // resetting the plugin and ignoring changes
+    if (this.serverless.service.functions[`warmUpPlugin${capitalize(warmerName)}`]) {
       return;
     }
 
